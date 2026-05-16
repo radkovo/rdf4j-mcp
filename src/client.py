@@ -17,19 +17,41 @@ class Rdf4jClient:
     def repo_endpoint(self):
         return f"{self.api_root}/repositories/{self.repository_id}"
     
+    def _auth_headers(self):
+        if self.username and self.password:
+            authstring = f"{self.username}:{self.password}"
+            return {"Authorization": f"Basic {base64.b64encode(authstring.encode()).decode()}"}
+        return {}
+
     def exec_sparql_query(self, query, limit=50000, offset=0, distinct=False):
         """ Executes a SPARQL SELECT query on the repository and returns the bindings. """
         url = f"{self.repo_endpoint()}?limit={limit}&offset={offset}"
         if distinct:
             url += "&distinct=true"
-        headers = { 
+        headers = {
             "Content-Type": "application/sparql-query",
-            "Accept": "application/sparql-results+json"
+            "Accept": "application/sparql-results+json",
+            **self._auth_headers(),
         }
-        if self.username and self.password:
-            authstring = f"{self.username}:{self.password}"
-            headers["Authorization"] = f"Basic {base64.b64encode(authstring.encode()).decode()}"
         response = requests.post(url, data=query, headers=headers)
         response.raise_for_status()
+        return response.json()
+
+    def get_prefixes(self):
+        """Retrieves the repository's namespace prefixes.
+
+        Returns a dict mapping namespace URI to prefixed name, e.g.
+        {"http://www.w3.org/1999/02/22-rdf-syntax-ns#": "rdf:"}.
+        """
+        url = f"{self.repo_endpoint()}/namespaces"
+        headers = {
+            "Accept": "application/sparql-results+json",
+            **self._auth_headers(),
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
         data = response.json()
-        return data
+        return {
+            row["namespace"]["value"]: row["prefix"]["value"] + ":"
+            for row in data["results"]["bindings"]
+        }
